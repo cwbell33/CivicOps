@@ -2,10 +2,10 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { Search, MapPin, Calendar, ExternalLink, Check, Download, Copy, Mail, Loader2, RefreshCw, AlertCircle, Filter, Plus, Trash2, Link as LinkIcon, ChevronDown, ChevronRight, Building2 } from "lucide-react";
+import { GROUPS, DEFAULT_SOURCES } from "../lib/sources";
 
 const CATEGORIES = ["Volunteering", "Political", "Community Outreach"];
 const ISSUES = ["Housing", "Transit", "General"];
-const GROUPS = ["Housing & Urbanism", "Transit & Streets", "Volunteering", "Government & Political", "Suburban Councils"];
 
 const CAT_STYLE = {
   "Volunteering": "bg-emerald-100 text-emerald-800 border-emerald-200",
@@ -18,47 +18,8 @@ const ISSUE_STYLE = {
   "General": "bg-slate-100 text-slate-700 border-slate-200",
 };
 
-const SEED_SOURCES = [
-  { name: "Sightline Institute", group: "Housing & Urbanism", url: "https://www.sightline.org/tag/events/" },
-  { name: "The Urbanist", group: "Housing & Urbanism", url: "https://www.theurbanist.org/upcoming-events/" },
-  { name: "Futurewise", group: "Housing & Urbanism", url: "" },
-  { name: "Share the Cities", group: "Housing & Urbanism", url: "" },
-  { name: "Seattle For Everyone", group: "Housing & Urbanism", url: "" },
-  { name: "House Our Neighbors", group: "Housing & Urbanism", url: "" },
-  { name: "Transportation Choices Coalition", group: "Transit & Streets", url: "https://transportationchoices.org/events/" },
-  { name: "Sound Transit (board & public meetings)", group: "Transit & Streets", url: "https://www.soundtransit.org/get-to-know-us/news-events/calendar" },
-  { name: "Seattle Neighborhood Greenways", group: "Transit & Streets", url: "" },
-  { name: "Habitat for Humanity Seattle-King County", group: "Volunteering", url: "https://www.habitatskc.org/how-to-help/volunteer/" },
-  { name: "United Way of King County", group: "Volunteering", url: "https://volunteer.uwkc.org" },
-  { name: "VolunteerMatch (Seattle)", group: "Volunteering", url: "" },
-  { name: "Seattle City Council", group: "Government & Political", url: "https://www.seattle.gov/council/calendar" },
-  { name: "King County Council", group: "Government & Political", url: "https://kingcounty.gov/en/dept/council/governance-leadership/county-council/committees/county-council-meetings" },
-  { name: "King County Democrats", group: "Government & Political", url: "" },
-  { name: "Bellevue City Council", group: "Suburban Councils", url: "https://bellevuewa.gov/city-government/city-council/council-meetings" },
-  { name: "Redmond City Council", group: "Suburban Councils", url: "https://www.redmond.gov/189/City-Council" },
-  { name: "Kirkland City Council", group: "Suburban Councils", url: "https://www.kirklandwa.gov/Whats-Happening/Council-Meetings" },
-  { name: "Renton City Council", group: "Suburban Councils", url: "" },
-  { name: "Kent City Council", group: "Suburban Councils", url: "" },
-  { name: "Auburn City Council", group: "Suburban Councils", url: "" },
-  { name: "Federal Way City Council", group: "Suburban Councils", url: "" },
-  { name: "Shoreline City Council", group: "Suburban Councils", url: "" },
-  { name: "Burien City Council", group: "Suburban Councils", url: "" },
-  { name: "Issaquah City Council", group: "Suburban Councils", url: "" },
-  { name: "Sammamish City Council", group: "Suburban Councils", url: "" },
-  { name: "Bothell City Council", group: "Suburban Councils", url: "" },
-  { name: "Kenmore City Council", group: "Suburban Councils", url: "" },
-  { name: "Mercer Island City Council", group: "Suburban Councils", url: "" },
-].map((s, i) => ({ ...s, id: i, enabled: true }));
+const SEED_SOURCES = DEFAULT_SOURCES.map((s, i) => ({ ...s, id: i, enabled: true }));
 
-function repairAndParse(str) {
-  try { return JSON.parse(str); } catch {}
-  for (const suffix of ['"}]}', '}]}', ',"url":""}]}']) {
-    try { return JSON.parse(str + suffix); } catch {}
-  }
-  const cut = str.lastIndexOf(',{"');
-  if (cut > 0) { try { return JSON.parse(str.slice(0, cut) + ']}'); } catch {} }
-  return null;
-}
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function fmtDate(iso) {
   if (!iso) return "Date TBD";
@@ -149,19 +110,19 @@ export default function App() {
   const [newName, setNewName] = useState("");
   const [newGroup, setNewGroup] = useState(GROUPS[0]);
 
-  // Load persisted events on mount
+  // Load the shared, server-stored events on mount
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("cnl:events");
-      if (raw) {
-        const saved = JSON.parse(raw);
-        if (Array.isArray(saved) && saved.length) {
-          setEvents(saved);
-          setSelected(new Set(saved.map((_, i) => i)));
+    (async () => {
+      try {
+        const res = await fetch("/api/events");
+        const data = await res.json();
+        if (Array.isArray(data.events) && data.events.length) {
+          setEvents(data.events);
+          setSelected(new Set(data.events.map((_, i) => i)));
         }
-      }
-    } catch {}
-    setStorageReady(true);
+      } catch {}
+      setStorageReady(true);
+    })();
   }, []);
 
   const enabledSources = sources.filter((s) => s.enabled);
@@ -170,60 +131,20 @@ export default function App() {
     setLoading(true);
     setError("");
     setNewEventsCount(null);
-    const byGroup = GROUPS.map((g) => {
-      const names = enabledSources.filter((s) => s.group === g).map((s) => s.name);
-      return names.length ? `${g}: ${names.join(", ")}` : null;
-    }).filter(Boolean).join("\n");
-
-    const prompt = `You are an event scout for CNL Seattle (Center for New Liberalism), a pro-housing, pro-transit liberal group in the Puget Sound region (King, Snohomish, and Pierce counties, centered on Seattle).
-
-Use web search to find REAL, upcoming, in-person civic events in roughly the next 6 weeks (today is ${todayISO()}) that members could attend. Three categories: Volunteering (service, mutual aid, cleanups, food banks, Habitat builds); Political (city/county council meetings, public hearings on housing & transit, advocacy days, candidate forums, town halls, canvassing); Community Outreach (neighborhood meetings, civic forums, tabling, open houses).
-
-PRIORITIZE searching these specific trusted sources first, then fall back to general search:
-${byGroup}
-
-Weight HEAVILY toward HOUSING (zoning, density, tenant rights, homelessness, comprehensive plan) and TRANSIT (Sound Transit, light rail/bus expansion, Vision Zero, bike/ped).
-
-Return ONLY valid minified JSON, no markdown or commentary, exactly:
-{"events":[{"title":"","date":"YYYY-MM-DD","time":"","location":"","category":"Volunteering|Political|Community Outreach","issue":"Housing|Transit|General","why":"one short sentence on why it fits CNL Seattle","source":"which org it came from","url":""}]}
-Up to 12 events. Keep string values concise (why ≤10 words). Real URLs. Empty string if time unknown. JSON only.`;
 
     try {
       const res = await fetch("/api/find-events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-5",
-          max_tokens: 4000,
-          messages: [{ role: "user", content: prompt }],
-          tools: [{ type: "web_search_20260209", name: "web_search" }],
-        }),
+        body: JSON.stringify({ sources: enabledSources }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error?.message || data?.error || "The event search failed. Try again.");
-      const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-      let clean = text.replace(/```json|```/g, "").trim();
-      const start = clean.indexOf("{"), end = clean.lastIndexOf("}");
-      if (start === -1 || end === -1) throw new Error("No JSON found in the response. Try running it again.");
-      clean = clean.slice(start, end + 1);
-      const parsed = repairAndParse(clean);
-      if (!parsed) throw new Error("Couldn't parse the response. Try running it again.");
-      const list = (parsed.events || []).filter((e) => e && e.title);
-      if (!list.length) throw new Error("No events returned. Try again or adjust your sources.");
+      if (!res.ok) throw new Error(data?.error || "The event search failed. Try again.");
 
-      // Deduplicate against existing events
-      const key = (e) => `${(e.title || "").toLowerCase().trim()}|${e.date || ""}`;
-      setEvents((prev) => {
-        const existingKeys = new Set(prev.map(key));
-        const newOnly = list.filter((e) => !existingKeys.has(key(e)));
-        setNewEventsCount(newOnly.length);
-        if (!newOnly.length) return prev;
-        const merged = [...prev, ...newOnly].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
-        try { window.localStorage.setItem("cnl:events", JSON.stringify(merged)); } catch {}
-        setSelected(new Set(merged.map((_, i) => i)));
-        return merged;
-      });
-
+      const merged = data.events || [];
+      setEvents(merged);
+      setSelected(new Set(merged.map((_, i) => i)));
+      setNewEventsCount(data.newEventsCount ?? 0);
       setLastRun(new Date());
       if (data.usage) setUsage(data.usage);
     } catch (err) {
@@ -233,9 +154,9 @@ Up to 12 events. Keep string values concise (why ≤10 words). Real URLs. Empty 
     }
   }
 
-  function clearSaved() {
+  async function clearSaved() {
     setEvents([]); setSelected(new Set()); setNewEventsCount(null);
-    try { window.localStorage.removeItem("cnl:events"); } catch {}
+    try { await fetch("/api/events", { method: "DELETE" }); } catch {}
   }
 
   const filtered = useMemo(() => {
