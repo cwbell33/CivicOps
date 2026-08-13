@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# CivicOps
 
-## Getting Started
+Community engagement tool for aggregating events for local politics — built for CNL Seattle to surface upcoming housing, transit, and civic events across the Puget Sound region.
 
-First, run the development server:
+It uses Claude (with web search) to scout trusted local sources for real, upcoming events, then lets you review, filter, and hand off a curated list to your chapter chair as a calendar file or email summary.
+
+## How it works
+
+- **Manual search**: click "Find Events" in the app to run a search on demand.
+- **Weekly auto-refresh**: a scheduled job (see [Deployment](#deployment)) runs the same search automatically and shares results with every visitor.
+- Results are deduplicated and merged into one shared list — nothing is lost between runs.
+
+## Local development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+You'll need a `.env.local` file (not committed to git) with:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+ANTHROPIC_API_KEY=your-key-from-console.anthropic.com
+CRON_SECRET=any-random-string
+```
 
-## Learn More
+Without an Anthropic API key, the app still loads but "Find Events" will show a clear error instead of crashing. Without a connected Vercel Blob store (see below), events aren't shared across visitors — the app still works locally, it just won't persist the shared list.
 
-To learn more about Next.js, take a look at the following resources:
+## Deployment (Vercel)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Import this repo into [Vercel](https://vercel.com/new).
+2. Add `ANTHROPIC_API_KEY` and `CRON_SECRET` as Environment Variables in the project settings.
+3. In the project's **Storage** tab, create a **Blob** store (access: Private) and connect it to this project — this is where the shared event list lives.
+4. Deploy. The weekly cron job (`vercel.json`, `/api/cron/refresh-events`) registers itself automatically and is protected by `CRON_SECRET`, so only Vercel's scheduler can trigger it.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Tech stack
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Next.js (App Router) + Tailwind CSS v4, Claude API (web search tool) via a server-side proxy route, Vercel Blob for shared storage, Vercel Cron for the weekly refresh.
