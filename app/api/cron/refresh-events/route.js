@@ -1,5 +1,7 @@
 import { runEventSearch } from "../../../../lib/find-events";
 
+export const maxDuration = 300;
+
 export async function GET(request) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;

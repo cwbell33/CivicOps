@@ -1,5 +1,7 @@
 import { runEventSearch } from "../../../lib/find-events";
 
+export const maxDuration = 300;
+
 export async function POST(request) {
   let sources;
   try {

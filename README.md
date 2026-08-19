@@ -35,6 +35,19 @@ Without an Anthropic API key, the app still loads but "Find Events" will show a 
 3. In the project's **Storage** tab, create a **Blob** store (access: Private) and connect it to this project — this is where the shared event list lives.
 4. Deploy. The weekly cron job (`vercel.json`, `/api/cron/refresh-events`) registers itself automatically and is protected by `CRON_SECRET`, so only Vercel's scheduler can trigger it.
 
+## Refreshing manually from your own computer
+
+Vercel Blob storage isn't tied to a deployment — it's a shared bucket that anything with the right token can read or write, including your laptop. To trigger a refresh from your own machine that shows up on the live site immediately (instead of waiting for the weekly cron):
+
+1. In the Vercel project, go to **Storage → your Blob store**, and copy the `BLOB_READ_WRITE_TOKEN` value.
+2. Add it to your local `.env.local`:
+   ```
+   BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+   ```
+3. Run `npm run dev` and click "Find Events" in the browser at `localhost:3000`.
+
+Because it's using the *production* token, results are written straight into the same shared list the deployed site reads — no separate upload or export step.
+
 ## Tech stack
 
 Next.js (App Router) + Tailwind CSS v4, Claude API (web search tool) via a server-side proxy route, Vercel Blob for shared storage, Vercel Cron for the weekly refresh.
