@@ -48,6 +48,31 @@ Vercel Blob storage isn't tied to a deployment — it's a shared bucket that any
 
 Because it's using the *production* token, results are written straight into the same shared list the deployed site reads — no separate upload or export step.
 
+## Refreshing without the Anthropic API (subscription-powered)
+
+The app's built-in "Find Events" button calls the Claude API and bills against API credits. If you'd rather do the research in a Claude Code session — which runs under your Claude subscription instead — you can push results into the app's storage directly, and skip the API key entirely.
+
+**One-time setup:** get a read-write token from the Vercel dashboard (**Storage → your Blob store → settings**) and add it to `.env.local`:
+
+```
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+```
+
+(The OIDC credentials Vercel injects automatically only work *inside* Vercel's functions. Code running on your own machine needs this static token.)
+
+**Each refresh:**
+
+1. In a Claude Code session, ask Claude to research upcoming Puget Sound civic events and save them as JSON matching the shape documented at the top of `scripts/push-events.mjs`.
+2. Push them to the live site:
+
+```bash
+node scripts/push-events.mjs events.json
+```
+
+New events are merged into whatever is already stored; anything matching an existing title and date is skipped, so re-running is harmless.
+
+**Trade-off:** this costs nothing against API credits, but it's manual — nothing can trigger a Claude Code session on a schedule, and only someone with Claude Code plus this token can refresh. If you want automatic weekly refreshes and a self-serve button for everyone, keep `ANTHROPIC_API_KEY` set and use the built-in search instead. Both paths can coexist.
+
 ## Tech stack
 
 Next.js (App Router) + Tailwind CSS v4, Claude API (web search tool) via a server-side proxy route, Vercel Blob for shared storage, Vercel Cron for the weekly refresh.
