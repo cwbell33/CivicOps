@@ -19,38 +19,19 @@
  *     "url": "https://..."
  *   }
  *
+ * category is one of: Volunteering | Political | Community Outreach
+ * issue is one of:    Housing | Transit | General
+ *
  * New events are merged into whatever is already stored; anything matching an
  * existing title + date is skipped, so running this twice is harmless.
+ *
+ * Every successful run, including one that adds nothing new, records its time
+ * in storage. scripts/refresh-status.mjs reads that record.
  */
 
 import { readFileSync } from "node:fs";
 import { get, put } from "@vercel/blob";
-
-const EVENTS_PATHNAME = "cnl-events.json";
-const ENV_FILE = ".env.local";
-
-function die(message) {
-  console.error(`\n✖ ${message}\n`);
-  process.exit(1);
-}
-
-/** Minimal .env.local reader so this runs with a plain `node` invocation. */
-function loadEnvLocal() {
-  let raw;
-  try {
-    raw = readFileSync(new URL(`../${ENV_FILE}`, import.meta.url), "utf8");
-  } catch {
-    return; // No .env.local is fine if the token is already in the environment.
-  }
-  for (const line of raw.split("\n")) {
-    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (!match) continue;
-    const [, key, value] = match;
-    if (!process.env[key]) {
-      process.env[key] = value.replace(/^["']|["']$/g, "");
-    }
-  }
-}
+import { EVENTS_PATHNAME, STATUS_PATHNAME, die, loadToken } from "./_shared.mjs";
 
 function eventKey(event) {
   return `${(event.title || "").toLowerCase().trim()}|${event.date || ""}`;
@@ -61,16 +42,20 @@ function byDate(a, b) {
 }
 
 async function readExisting(token) {
-  const result = await get(EVENTS_PATHNAME, {
-    access: "private",
-    useCache: false,
-    token,
-  });
+  const result = await get(EVENTS_PATHNAME, { access: "private", useCache: false, token });
   // A store with nothing written yet is expected, not an error.
   if (!result || result.statusCode !== 200 || !result.stream) return [];
-  const text = await new Response(result.stream).text();
-  const parsed = JSON.parse(text);
+  const parsed = JSON.parse(await new Response(result.stream).text());
   return Array.isArray(parsed) ? parsed : [];
+}
+
+async function writeJson(pathname, value, token) {
+  await put(pathname, JSON.stringify(value), {
+    access: "private",
+    contentType: "application/json",
+    allowOverwrite: true,
+    token,
+  });
 }
 
 async function main() {
@@ -79,15 +64,7 @@ async function main() {
     die("No file given.\n  Usage: node scripts/push-events.mjs <path-to-json-file>");
   }
 
-  loadEnvLocal();
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    die(
-      `No BLOB_READ_WRITE_TOKEN found.\n` +
-        `  Add it to ${ENV_FILE}:  BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...\n` +
-        `  Get it from the Vercel dashboard under Storage > your Blob store.`
-    );
-  }
+  const token = loadToken();
 
   let fileContents;
   try {
@@ -125,25 +102,23 @@ async function main() {
 
   const existingKeys = new Set(existing.map(eventKey));
   const fresh = valid.filter((e) => !existingKeys.has(eventKey(e)));
-
-  if (!fresh.length) {
-    console.log("\n✓ Nothing new — every event was already stored. Left storage unchanged.\n");
-    return;
-  }
-
-  const merged = [...existing, ...fresh].sort(byDate);
+  const merged = fresh.length ? [...existing, ...fresh].sort(byDate) : existing;
 
   try {
-    await put(EVENTS_PATHNAME, JSON.stringify(merged), {
-      access: "private",
-      contentType: "application/json",
-      allowOverwrite: true,
-      token,
-    });
+    if (fresh.length) await writeJson(EVENTS_PATHNAME, merged, token);
+    await writeJson(
+      STATUS_PATHNAME,
+      { lastSuccessAt: new Date().toISOString(), added: fresh.length, total: merged.length },
+      token
+    );
   } catch (err) {
     die(`Write to storage failed.\n  ${err.message}`);
   }
 
+  if (!fresh.length) {
+    console.log("\n✓ Nothing new — every event was already stored. Refresh recorded.\n");
+    return;
+  }
   console.log(
     `\n✓ Added ${fresh.length} new event(s). Storage now holds ${merged.length}.\n` +
       `  Reload the live site to see them.\n`
